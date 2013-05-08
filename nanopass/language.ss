@@ -212,6 +212,7 @@
             (lambda (syn pretty)
               (syntax-case syn ()
                 [(s s* ...) (make-pair-alt #'(s s* ...) pretty)]
+		[(s . n) (make-pair-alt #'(s . n) pretty)]
                 [s
                  (identifier? #'s)
                  (if (memq (meta-var->raw-meta-var (syntax->datum #'s)) terminal-meta*)
