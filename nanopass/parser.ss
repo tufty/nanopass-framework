@@ -34,7 +34,7 @@
                             (if maybe? #`(and #,x (proc-name #,x #t))  #`(proc-name #,x #t))
                             #`(map (lambda (x) #,(f (- level 1) #'x)) #,x)))))]
                 [else (syntax-violation 'parser "unrecognized meta variable"
-                        (language-name desc) m)]))) 
+                        (language-name desc) m)])))
 
           (define-who make-term-clause
             (lambda (alt)
@@ -86,19 +86,21 @@
               ([nonterm-imp-alt* (lambda (alt) (has-implicit-alt?  (nonterminal-alt-ntspec alt)))]
                 [nonterm-nonimp-alt* otherwise])
               #`(lambda (s-exp error?)
-                  (or #,@(map make-nonterm-clause nonterm-nonimp-alt*)
-                      (if (pair? s-exp)
-                          (cond
-                            #,@(map make-pair-clause pair-alt*)
-                            #,@(map make-pair-clause pair-imp-alt*)
-                            [else #f])
-                          (cond
-                            #,@(map make-term-clause term-alt*)
-                            [else #f]))
-                      #,@(map make-nonterm-clause nonterm-imp-alt*)
-                      (and error? (error who
-                                    (format "invalid syntax ~s" 
-                                      s-exp)))))))))
+                  (let ([error-value (gensym)])
+                    (or #,@(map make-nonterm-clause nonterm-nonimp-alt*)
+                        (not (equal? error-value 
+                                     (if (pair? s-exp)
+                                         (cond
+                                          #,@(map make-pair-clause pair-alt*)
+                                          #,@(map make-pair-clause pair-imp-alt*)
+                                          [else error-value])
+                                         (cond
+                                          #,@(map make-term-clause term-alt*)
+                                          [else error-value]))))
+                        #,@(map make-nonterm-clause nonterm-imp-alt*)
+                        (and error? (error who
+                                           (format "invalid syntax ~s" 
+                                                   s-exp))))))))))
 
       (define make-parser
         (lambda (parser-name lang trace?)
