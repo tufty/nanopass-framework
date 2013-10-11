@@ -520,3 +520,52 @@ LATEST
     parse.  Specifically, since #f was used to indicate a failed parse,
     parsing the bare boolean #f was raising an error.
       nanopass/parse.ss, tests/unit-tests.ss
+2013-10-01
+  * changed unique-id to unique-symbol, since we are now building the
+    unique-symbol and using it directly instead of generating the id to use in
+    output syntax.  also exporting make-list to make generating accessors
+    easier.
+      nanopass/helpers.ss, nanopass/implementation-helpers.chezscheme.ss,
+      nanopass/implementation-helpers.ss
+  * fixed language->s-expression to no longer output the nongenerative id of
+    an ntspec, since it is no longer necessary to specify for each ntspec
+      nanopass/language.ss
+  * small cleanup of the meta-parser.  removed extra (unused) argument to a
+    couple of procedures.
+      nanopass/meta-parsers.ss, nanopass/parser.ss, nanopass/unparser.ss
+  * removed differentiation between checking and non-checking maker, since we
+    are no longer using the non-checking maker.
+      nanopass/meta-parsers.ss, nanopass/records.ss, nanopass/parser.ss,
+      nanopass/pass.ss
+  * improved checking of meta-variables so that if the wrong meta-variable is
+    used, it will report it to the user, rather than doing a check that will
+    always fail we now report that an invalid meta-variable was used at expand
+    time.  also did some general cleanup and improved error messages around
+    using quoted items in a pattern match.
+      nanopass/pass.ss, nanopass/records.ss
+  * changed record creation code to skip the define-record-type macro and
+    instead we are creating the records directly using the procedural
+    interface.  this (hopefully) helps the memory usage and speed of expanding
+    language definitions.
+      nanopass/records.ss
+2013-10-02
+  * added bin directory to automate the process of building binaries across Mac
+    OS X and Linux.  these scripts require a setup with multiple versions of
+    the Chez Scheme compiler installed.
+      bin/build-shared-objects, bin/compile-file-to-lib-dir
+2013-10-02
+  * added a define-pruned-language form that prunes a language and then defines
+    it with a new name.  also changed diff-languages to output code that is
+    appropriate for the current implemntation of language extensions in the
+    nanopass framework.
+      nanopass.ss, nanopass/languages.ss
+2013-10-03
+  * added checking for mutually recursive nonterminals so that we now report
+    an error to the user.  this was a simple change, and if we want to support
+    this in the future, there is probably a way to do so, we just need to be
+    careful about pass generation.
+      nanopass/records.ss
+2013-10-04
+  * fixed a small bug in the error reporting code for the stricter checking of
+    nanopass meta-variables.
+      nanopass/pass.ss
