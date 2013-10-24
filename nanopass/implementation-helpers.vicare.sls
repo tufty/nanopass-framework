@@ -1,11 +1,8 @@
-;;; Copyright (c) 2000-2013 Dipanwita Sarkar, Andrew W. Keep, R. Kent Dybvig, Oscar Waddell
-;;; See the accompanying file Copyright for detatils
-
 (library (nanopass implementation-helpers)
   (export
     ;; formatting
     format printf pretty-print
-    
+
     ;; listy stuff
     iota make-list list-head
 
@@ -60,7 +57,11 @@
     ; scheme-version<= with-scheme-version gensym? errorf with-output-to-string
     ; with-input-from-string
     )
-  (import (rnrs) (rnrs eval) (ikarus))
+  (import
+    (vicare)
+    (rename
+      (only (vicare system $compiler) $optimize-level)
+      ($optimize-level optimize-level)))
 
   (define-syntax with-implicit
     (syntax-rules ()
@@ -126,47 +127,30 @@
     (protocol
       (lambda (new)
         (lambda (a type)
-          (let ([as (annotation-source a)])
-            (let ([fn (car as)] [cp (cdr as)])
-              (if (provide-full-source-information)
-                  (call-with-input-file fn
-                    (lambda (ip)
-                      (let loop ([n cp] [line 1] [col 0])
-                        (if (= n 0)
-                            (new fn (port-position ip) cp #f #f line col type)
-                            (let ([c (read-char ip)])
-                              (if (char=? c #\newline)
-                                  (loop (- n 1) (fx+ line 1) 0)
-                                  (loop (- n 1) line (fx+ col 1)))))))) 
-                  (new fn #f cp #f #f #f #f type))))))))
-
-  (define syntax->annotation
-    (lambda (x)
-      (and (struct? x)                      ;; syntax objects are structs
-           (string=? (struct-name x) "stx") ;; with the name syntax
-           (let ([e (struct-ref x 0)])      ;; the 0th element is potentially an annotation
-             (and (annotation? e) e)))))    ;; if it is an annotation return it
+          (let ([sp (annotation-textual-position a)])
+            (new
+              (source-position-port-id sp) (source-position-byte sp)
+              (source-position-character sp) #f #f (source-position-line sp)
+              (source-position-column sp) type))))))
 
   (define syntax->source-information
     (lambda (stx)
       (let loop ([stx stx] [type 'at])
         (cond
-          [(syntax->annotation stx) =>
-           (lambda (a) (make-source-information a type))]
+          [(syntax-object? stx)
+           (let ([e (syntax-object-expression stx)])
+             (and (annotation? e) (make-source-information e type)))]
           [(pair? stx) (or (loop (car stx) 'near) (loop (cdr stx) 'near))]
           [else #f]))))
-
-  (define-syntax errorf
-    (syntax-rules ()
-      [(_ who fmt args ...) (error who (format fmt args ...))]))
- 
+  
   (define-syntax warningf
     (syntax-rules ()
       [(_ who fmt args ...) (warning who (format fmt args ...))]))
 
+  (define-syntax errorf
+    (syntax-rules ()
+      [(_ who fmt args ...) (error who (format fmt args ...))]))
+  
   (define-syntax indirect-export
     (syntax-rules ()
-      [(_ id indirect-id ...) (define t (if #f #f))]))
-
-  )
-
+      [(_ id indirect-id ...) (define t (if #f #f))])))

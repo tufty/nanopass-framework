@@ -2,12 +2,13 @@
 ;;; See the accompanying file Copyright for detatils
 
 (import (rnrs) (tests compiler-test) (tests helpers) (tests unit-tests) (nanopass helpers))
-(printf "construct-id called ~d times\n" (construct-id-call-count))
+
 (printf "Running unit tests\n")
 (run-unit-tests)
 (run-ensure-correct-identifiers)
 (run-maybe-tests)
 (run-maybe-dots-tests)
+(run-language-dot-support)
 (printf "Compiler loaded, running all tests (quietly)\n")
 (time
   (begin

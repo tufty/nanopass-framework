@@ -1,7 +1,6 @@
 ;;; Copyright (c) 2000-2013 Dipanwita Sarkar, Andrew W. Keep, R. Kent Dybvig, Oscar Waddell
 ;;; See the accompanying file Copyright for detatils
 
-#!chezscheme
 (library (nanopass records)
   (export find-spec nonterminal-meta? nano-alt->ntspec 
           nonterm-id->ntspec? nonterm-id->ntspec id->spec term-id->tspec?
@@ -53,43 +52,18 @@
 
           define-nanopass-record
 
-          define-nanopass-record-types
+          #;define-nanopass-record-types
 
           exists-alt?)
-  (import (rnrs)
-          (nanopass helpers)
-          (nanopass syntaxconvert)
-          (only (chezscheme) optimize-level errorf indirect-export with-implicit fxsrl record-writer))
-
-  (define fxbit-width
-    (let ([table (let ([v (make-vector 256)])
-                   (let loop ([bits 0] [counter 0])
-                     (cond
-                       [(fx>? counter 255) v]
-                       [(fx>? counter (expt 2 bits)) (loop (fx+ bits 1) counter)]
-                       [else (vector-set! v counter bits) (loop bits (fx+ counter 1))])))])
-      (lambda (x)
-        (let loop ([x x] [bit-width 0])
-          (if (fx<? x 256)
-              (fx+ bit-width (vector-ref table x))
-              (loop (fxsrl x 8) (fx+ bit-width 8)))))))
-
-  ; the base language
-  (define-syntax define-nanopass-record
-    (lambda (x)
-      (syntax-case x ()
-        [(k) (with-implicit (k nanopass-record nanopass-record? nanopass-record-tag)
-               #'(define-record-type (nanopass-record make-nanopass-record nanopass-record?)
-                   (nongenerative #{nanopass-record d47f8omgluol6otrw1yvu5-0})
-                   (fields (immutable tag nanopass-record-tag))))])))
+  (import (rnrs) (nanopass helpers) (nanopass syntaxconvert))
 
   (define-nanopass-record)
 
-  (define-syntax *nanopass-record-tag* (lambda (x) (syntax-violation #f "invalid syntax" x)))
-  (define-syntax *nanopass-record-is-parent* (lambda (x) (syntax-violation #f "invalid syntax" x)))
-  (define-syntax *nanopass-record-bits* (lambda (x) (syntax-violation #f "invalid syntax" x)))
+  #;(define-syntax *nanopass-record-tag* (lambda (x) (syntax-violation #f "invalid syntax" x)))
+  #;(define-syntax *nanopass-record-is-parent* (lambda (x) (syntax-violation #f "invalid syntax" x)))
+  #;(define-syntax *nanopass-record-bits* (lambda (x) (syntax-violation #f "invalid syntax" x)))
 
-  (define-syntax define-nanopass-record-types
+  #;(define-syntax define-nanopass-record-types
     (lambda (x)
       (define-record-type np-rec
         (fields name maker pred parent sealed? fields protocol (mutable tag) (mutable bp) (mutable c*))
@@ -228,27 +202,9 @@
         (lambda (name meta-vars alts)
           (new name meta-vars alts #f #f #f #f #f #f #f #f #f #f #f)))))
 
-  (module ()
-    (record-writer (record-type-descriptor ntspec)
-      (lambda (r p wr)
-        (display "#<ntspec " p)
-        (wr (syntax->datum (ntspec-name r)) p)
-        (display " " p)
-        (wr (syntax->datum (ntspec-meta-vars r)) p)
-        (display " " p)
-        (wr (ntspec-alts r) p)
-        (display ">" p))))
-
   (define-record-type alt
     (fields syn pretty)
     (nongenerative))
-
-  (module ()
-    (record-writer (record-type-descriptor alt)
-      (lambda (r p wr)
-        (display "#<alt " p)
-        (wr (syntax->datum (alt-syn r)) p)
-        (display ">" p))))
 
   (define-record-type pair-alt
     (parent alt)
@@ -491,7 +447,7 @@
         (let ([lang-rec-id (construct-id id lang-name "-record")]
               [tspec* (language-tspecs lang)]
               [ntspec* (language-ntspecs lang)]
-              [np-bits (r #'nanopass-record #'*nanopass-record-bits*)]
+              [np-bits #f #;(r #'nanopass-record #'*nanopass-record-bits*)]
               [nongen-sym (and nongen-id (syntax->datum nongen-id))])
           ;; Needs to return #t because it ends up encoded in a field this way
           (define meta?
@@ -504,11 +460,11 @@
               (let ([t (tspec-type tspec)])
                 (tspec-pred-set! tspec (construct-id t t "?"))
                 (tspec-meta-pred-set! tspec (construct-id id "meta-" t "?"))
-                (let ([tag (guard (c [else #f]) (r t #'*nanopass-record-tag*))])
+                (let ([tag #f #;(guard (c [else #f]) (r t #'*nanopass-record-tag*))])
                   (if tag
                       (begin
                         (tspec-tag-set! tspec tag)
-                        (tspec-parent?-set! tspec (r t #'*nanopass-record-is-parent*))
+                        (tspec-parent?-set! tspec #f #;(r t #'*nanopass-record-is-parent*))
                         (fxior tag tspec-tag-all))
                       tspec-tag-all)))))
           (define annotate-alt*!
@@ -652,7 +608,7 @@
             (language-pred-set! lang #`(record-predicate '#,lang-rtd)))
           (let ([tspec-tag-bits (fold-left annotate-tspec! 0 tspec*)])
             (let ([nt-counter (annotate-ntspec*! ntspec*)])
-              (let ([bits (fxbit-width nt-counter)])
+              (let ([bits (fxlength nt-counter)])
                 (unless (fxzero? (fxand tspec-tag-bits (fx- (fxarithmetic-shift-left 1 bits) 1)))
                   (syntax-violation 'define-language "nanopass-record tags interfere with language production tags"
                     lang-name))
@@ -680,8 +636,10 @@
                      (lambda (ntspec) (values (ntspec-all-pred ntspec) (ntspec-name ntspec)))]
                     [(terminal-meta->tspec fld tspecs) =>
                      (lambda (tspec) (values (tspec-pred tspec) (tspec-type tspec)))]
-                    [else (syntax-error fld "unrecognized meta-variable in language ~s"
-                            (syntax->datum (language-name lang)))])
+                    [else (syntax-violation 'define-language
+                            (format "unrecognized meta-variable in language ~s"
+                              (syntax->datum (language-name lang)))
+                            fld)])
                   (lambda (pred? name)
                     (with-syntax ([pred? (if maybe?
                                              #`(lambda (x) (or (eq? x #f) (#,pred? x)))
