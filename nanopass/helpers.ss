@@ -1,57 +1,204 @@
-;;; Copyright (c) 2000-2013 Dipanwita Sarkar, Andrew W. Keep, R. Kent Dybvig, Oscar Waddell
-;;; See the accompanying file Copyright for detatils
+;;; Copyright (c) 2000-2015 Dipanwita Sarkar, Andrew W. Keep, R. Kent Dybvig, Oscar Waddell
+;;; See the accompanying file Copyright for details
 
-#!chezscheme
 (library (nanopass helpers)
-  (export combine ellipsis? unquote? unique-id
-          construct-id ensure-no-suffix
-          generate-acc partition-syn gentemp 
-          bound-id-member? bound-id-union my-enumerate 
-          colon?
-          arrow? warning syntax-error format 
-          make-compile-time-value pretty-print trace-define trace-let
-          trace-define-syntax trace-lambda printf time echo-syntax gensym
-          construct-id-call-count
-          construct-id-constructed-identifiers
-          extends definitions entry terminals nongenerative-id
-          construct-id-timer print-accumulating-timer
-          define-auxiliary-keyword define-auxiliary-keywords
-          plus? minus? double-arrow? double-equal? splice? list-of? rec inspect
-          with-values meta-var->raw-meta-var
-          warningf meta-parser-property define-property define-who datum
-          list-head module
-          indirect-export syntax->annotation
-          annotation-source source-object-bfp source-object-sfd source-file-descriptor-path
-          all-unique-identifiers? regensym)
+  (export
+    ;; auxiliary keywords for language/pass definitions
+    extends definitions entry terminals nongenerative-id maybe
+
+    ;; predicates for looking for identifiers independent of context
+    ellipsis? unquote? colon? arrow? plus? minus? double-arrow? 
+
+    ;; things for dealing with syntax and idetnfieris
+    all-unique-identifiers? construct-id construct-unique-id gentemp
+    bound-id-member? bound-id-union partition-syn datum 
+
+    ;; things for dealing with language meta-variables
+    meta-var->raw-meta-var combine unique-name
+
+    ;; convenience syntactic forms
+    rec with-values define-who 
+
+    ;; source information funtions
+    syntax->source-info 
+
+    ;;; stuff imported from implementation-helpers
+
+    ;; formatting
+    format printf pretty-print
+
+    ;; listy stuff
+    iota make-list list-head
+
+    ;; gensym stuff (related to nongenerative languages)
+    gensym regensym
+
+    ;; library export stuff (needed for when used inside module to
+    ;; auto-indirect export things)
+    indirect-export
+
+    ;; compile-time environment helpers
+    make-compile-time-value
+
+    ;; code organization helpers
+    module
+
+    ;; useful for warning items
+    warningf errorf
+
+    ;; used to get the best performance from hashtables
+    eq-hashtable-set! eq-hashtable-ref
+
+    ;; debugging support
+    trace-lambda trace-define-syntax trace-let trace-define
+
+    ;; needed to know what code to generate
+    optimize-level
+
+    ;; the base record, so that we can use gensym syntax
+    define-nanopass-record
+
+    ;; failure token so that we can know when parsing fails with a gensym
+    np-parse-fail-token
+
+    ;; handy syntactic stuff
+    with-implicit with-r6rs-quasiquote with-extended-quasiquote
+    extended-quasiquote with-auto-unquote)
   (import (rnrs) (nanopass implementation-helpers))
 
-  ;; the following should get moved into Chez Scheme proper (and generally
-  ;; cleaned up with appropriate new Chez Scheme primitives for support)
-  (define regensym
-    (let ()
-      (define offset
-        (cond
-          [(eqv? (fixnum-width) 30) 17] ; (constant symbol-name-disp)
-          [(eqv? (fixnum-width) 61) 29] ; (constant symbol-name-disp)
-          [else (errorf 'regensym "unexpected fixnum width ~s" (fixnum-width))]))
-      (define echo
-        (lambda (x)
-          (printf "~s~%" x)
-          x))
-      (case-lambda
-        [(gs extra)
-         (unless (gensym? gs) (errorf 'regensym "~s is not a gensym" gs))
-         (unless (string? extra) (errorf 'regensym "~s is not a string" extra))
-         (with-output-to-string (lambda () (format "~s" gs)))
-         (let ([name (#%$object-ref 'scheme-object gs offset)])
-           (with-input-from-string (format "#{~a ~a~a}" (cdr name) (car name) extra) read))]
-        [(gs extra0 extra1)
-         (unless (gensym? gs) (errorf 'regensym "~s is not a gensym" gs))
-         (unless (string? extra0) (errorf 'regensym "~s is not a string" extra0))
-         (unless (string? extra1) (errorf 'regensym "~s is not a string" extra1))
-         (with-output-to-string (lambda () (format "~s" gs)))
-         (let ([name (#%$object-ref 'scheme-object gs offset)])
-           (with-input-from-string (format "#{~a~a ~a~a}" (cdr name) extra0 (car name) extra1) read))])))
+  (define-syntax datum
+    (syntax-rules ()
+      [(_ e) (syntax->datum #'e)]))
+
+  (define-syntax with-r6rs-quasiquote
+    (lambda (x)
+      (syntax-case x ()
+        [(k . body)
+         (with-implicit (k quasiquote)
+           #'(let-syntax ([quasiquote (syntax-rules () [(_ x) `x])]) . body))])))
+
+  (define-syntax extended-quasiquote
+    (lambda (x)
+      (define gather-unquoted-exprs
+        (lambda (body)
+          (let f ([body body] [t* '()] [e* '()])
+            (syntax-case body (unquote unquote-splicing)
+              [(unquote x)
+               (identifier? #'x)
+               (values body (cons #'x t*) (cons #'x e*))]
+              [(unquote-splicing x)
+               (identifier? #'x)
+               (values body (cons #'x t*) (cons #'x e*))]
+              [(unquote e)
+               (with-syntax ([(t) (generate-temporaries '(t))])
+                 (values #'(unquote t) (cons #'t t*) (cons #'e e*)))]
+              [(unquote-splicing e)
+               (with-syntax ([(t) (generate-temporaries '(t))])
+                 (values #'(unquote-splicing t) (cons #'t t*) (cons #'e e*)))]
+              [(tmpl0 . tmpl1)
+               (let-values ([(tmpl0 t* e*) (f #'tmpl0 t* e*)])
+                 (let-values ([(tmpl1 t* e*) (f #'tmpl1 t* e*)])
+                   (values #`(#,tmpl0 . #,tmpl1) t* e*)))]
+              [atom (values #'atom t* e*)]))))
+      (define build-list
+        (lambda (body orig-level)
+          (let loop ([body body] [level orig-level])
+            (syntax-case body (unquote unquote-splicing)
+              [(tmpl0 ... (unquote e))
+               (with-syntax ([(tmpl0 ...) (rebuild-body #'(tmpl0 ...) (fx- orig-level 1))])
+                 (cond
+                   [(fx=? level 0) #'(tmpl0 ... (unquote e))]
+                   [(fx=? level 1) #'(tmpl0 ... (unquote-splicing e))]
+                   [else (let loop ([level level] [e #'e])
+                           (if (fx=? level 1)
+                               #`(tmpl0 ... (unquote-splicing #,e))
+                               (loop (fx- level 1) #`(apply append #,e))))]))]
+              [(tmpl0 ... (unquote-splicing e))
+               (with-syntax ([(tmpl0 ...) (rebuild-body #'(tmpl0 ...) (fx- orig-level 1))])
+                 (cond
+                   [(fx=? level 0) #'(tmpl0 ... (unquote-splicing e))]
+                   [else (let loop ([level level] [e #'e])
+                           (if (fx=? level 0)
+                               #`(tmpl0 ... (unquote-splicing #,e))
+                               (loop (fx- level 1) #`(apply append #,e))))]))]
+              [(tmpl0 ... tmpl1 ellipsis)
+               (eq? (datum ellipsis) '...)
+               (loop #'(tmpl0 ... tmpl1) (fx+ level 1))]
+              [(tmpl0 ... tmpl1)
+               (with-syntax ([(tmpl0 ...) (rebuild-body #'(tmpl0 ...) (fx- orig-level 1))])
+                 (let-values ([(tmpl1 t* e*) (gather-unquoted-exprs #'tmpl1)])
+                   (when (null? e*)
+                     (syntax-violation 'extended-quasiquote
+                                       "no variables found in ellipsis expression" body))
+                   (let loop ([level level]
+                              [e #`(map (lambda #,t*
+                                          (extended-quasiquote
+                                            #,tmpl1))
+                                        . #,e*)])
+                     (if (fx=? level 1)
+                         #`(tmpl0 ... (unquote-splicing #,e))
+                         (loop (fx- level 1) #`(apply append #,e))))))]))))
+      (define rebuild-body
+        (lambda (body level)
+          (syntax-case body (unquote unquote-splicing)
+            [(unquote e) #'(unquote e)]
+            [(unquote-splicing e) #'(unquote-splicing e)]
+            [(tmpl0 ... tmpl1 ellipsis)
+             (eq? (datum ellipsis) '...)
+             (with-syntax ([(tmpl0 ...) (build-list #'(tmpl0 ... tmpl1) (fx+ level 1))])
+               #'(tmpl0 ...))]
+            [(tmpl0 ... tmpl1 ellipsis . tmpl2)
+             (eq? (datum ellipsis) '...)
+             (with-syntax ([(tmpl0 ...) (build-list #'(tmpl0 ... tmpl1) (fx+ level 1))]
+                           [tmpl2 (rebuild-body #'tmpl2 level)])
+               #'(tmpl0 ... . tmpl2))]
+            [(tmpl0 ... tmpl1)
+             (with-syntax ([(tmpl0 ...) (rebuild-body #'(tmpl0 ...) level)]
+                           [tmpl1 (rebuild-body #'tmpl1 level)])
+               #'(tmpl0 ... tmpl1))]
+            [(tmpl0 ... tmpl1 . tmpl2)
+             (with-syntax ([(tmpl0 ...) (rebuild-body #'(tmpl0 ... tmpl1) level)]
+                           [tmpl2 (rebuild-body #'tmpl2 level)])
+               #'(tmpl0 ... . tmpl2))]
+            [other #'other])))
+      (syntax-case x ()
+        [(k body)
+         (with-syntax ([body (rebuild-body #'body 0)])
+           #'(quasiquote body))])))
+
+  (define-syntax with-extended-quasiquote
+    (lambda (x)
+      (syntax-case x ()
+        [(k . body)
+         (with-implicit (k quasiquote)
+           #'(let-syntax ([quasiquote (syntax-rules ()
+                                        [(_ x) (extended-quasiquote x)])])
+
+               . body))])))
+
+  (define-syntax with-auto-unquote
+    (lambda (x)
+      (syntax-case x ()
+        [(k (x* ...) . body)
+         (with-implicit (k quasiquote)
+           #'(let-syntax ([quasiquote
+                           (lambda (x)
+                             (define replace-vars
+                               (let ([vars (list #'x* ...)])
+                                 (lambda (b)
+                                   (let f ([b b])
+                                     (syntax-case b ()
+                                       [id (identifier? #'id)
+                                        (if (memp (lambda (var) (free-identifier=? var #'id)) vars)
+                                            #'(unquote id)
+                                            #'id)]
+                                       [(a . d) (with-syntax ([a (f #'a)] [d (f #'d)]) #'(a . d))]
+                                       [atom #'atom])))))
+                             (syntax-case x ()
+                               [(_ b)
+                                (with-syntax ([b (replace-vars #'b)])
+                                  #'`b)]))])
+               . body))])))
 
   (define all-unique-identifiers?
     (lambda (ls)
@@ -79,30 +226,13 @@
        (define-syntax name 
          (lambda (x)
            (syntax-violation 'name "misplaced use of auxiliary keyword" x)))]))
-  
+
   (define-syntax define-auxiliary-keywords
     (syntax-rules ()
       [(_ name* ...)
-       (begin
-         (define-auxiliary-keyword name*) ...)]))
+       (begin (define-auxiliary-keyword name*) ...)]))
 
-  (define-auxiliary-keywords extends definitions entry terminals nongenerative-id meta-parser-property)
-  
-  (define-syntax syntax-error
-    (syntax-rules ()
-      [(_ obj) (syntax-violation #f "invalid syntax (syntax-error)" obj)]
-      [(_ obj str) (syntax-violation #f str obj)]
-      [(_ obj str1 o2 o3 ...)
-       (syntax-violation #f (format str1 o2 o3 ...) obj)]))
-
-  (define-syntax with-implicit
-    (syntax-rules ()
-      [(_ (id name ...) body bodies ...)
-       (with-syntax ([name (datum->syntax #'id 'name)] ...) body bodies ...)]))
-  
-  (define-syntax datum
-    (syntax-rules ()
-      [(_ id) (syntax->datum #'id)]))
+  (define-auxiliary-keywords extends definitions entry terminals nongenerative-id maybe)
 
   (define-syntax define-who
     (lambda (x)
@@ -119,7 +249,7 @@
       (if (null? (car r*))
           r
           (cons (map car r*) (combine (map cdr r*) r))))) 
-  
+
   ;;; moved from meta-syntax-dispatch.ss and syntaxconvert.ss
   (define ellipsis?
     (lambda (x)
@@ -128,6 +258,10 @@
   (define unquote?
     (lambda (x)
       (and (identifier? x) (free-identifier=? x (syntax unquote)))))
+
+  (define unquote-splicing?
+    (lambda (x)
+      (and (identifier? x) (free-identifier=? x (syntax unquote-splicing)))))
 
   (define plus?
     (lambda (x)
@@ -147,12 +281,6 @@
            (or (free-identifier=? x #'=>)
                (eq? (syntax->datum x) '=>)))))
 
-  (define double-equal?
-    (lambda (x)
-      (and (identifier? x)
-           (or (free-identifier=? x #'==)
-               (eq? (syntax->datum x) '==)))))
-
   (define colon?
     (lambda (x)
       (and (identifier? x)
@@ -165,51 +293,26 @@
            (or (free-identifier=? x #'->)
                (eq? (syntax->datum x) '->)))))
 
-  (define splice?
-    (lambda (x)
-      (and (identifier? x)
-           (or (free-identifier=? x #'splice)
-               (eq? (syntax->datum x) 'splice)))))
-
-  (define list-of? 
-    (lambda (x)
-      (and (identifier? x)
-           (or (free-identifier=? x #'list-of)
-               (eq? (syntax->datum x) 'list-of)))))
-
-  ;;; unique-id produces a unique name derived the input name by
+  ;;; unique-name produces a unique name derived the input name by
   ;;; adding a unique suffix of the form .<digit>+.  creating a unique
   ;;; name from a unique name has the effect of replacing the old
   ;;; unique suffix with a new one.
-  
-  (define count 0)
 
   (define unique-suffix
-    (lambda ()
-      (set! count (+ count 1))
-      (number->string count))) 
-  
-  (define unique-id
-    (lambda (tid id . id*)
-      (datum->syntax tid
-        (string->symbol
-          (string-append
-            (fold-right
-              (lambda (id str) (string-append str ":" (symbol->string (syntax->datum id))))
-              (symbol->string (syntax->datum id)) id*)
-            "."
-            (unique-suffix))))))
+    (let ((count 0))
+      (lambda ()
+        (set! count (+ count 1))
+        (number->string count))))
 
-  ;; This is a macro that shows what the language name identifier is
-  ;; bound to in the expansion time environment 
-  (define-syntax show
-    (lambda (x)
-      (syntax-case x ()
-        [(k id)
-         (lambda (r)
-           (with-syntax ((x (datum->syntax #'k (r #'id))))
-             #''x))]))) 
-  
+  (define unique-name
+    (lambda (id . id*)
+      (string-append
+        (fold-right
+          (lambda (id str) (string-append str ":" (symbol->string (syntax->datum id))))
+          (symbol->string (syntax->datum id)) id*)
+        "."
+        (unique-suffix))))
+
   ; TODO: at some point we may want this to be a little bit more
   ; sophisticated, or we may want to have something like a regular
   ; expression style engine where we bail as soon as we can identify
@@ -220,10 +323,9 @@
         (let f ([i (fx- (string-length s) 1)])
           (cond
             [(fx=? i -1) sym]
-            [(or 
-               (char=? #\* (string-ref s i))
-               (char=? #\^ (string-ref s i))
-               (char=? #\? (string-ref s i)))
+            [(or (char=? #\* (string-ref s i))
+                 (char=? #\^ (string-ref s i))
+                 (char=? #\? (string-ref s i)))
              (f (fx- i 1))]
             [else (let f ([i i])
                     (cond
@@ -231,126 +333,31 @@
                       [(char-numeric? (string-ref s i)) (f (fx- i 1))]
                       [else (string->symbol (substring s 0 (fx+ i 1)))]))])))))
 
-  (define lookup
-    (lambda (id extract ls)
-      (and (identifier? id)
-           (exists (lambda (x) 
-                     (and (free-identifier=? 
-                            (datum->syntax #'mars (syntax->datum id))
-                            (datum->syntax #'mars (syntax->datum (extract x))))
-                          x)) ls)))) 
-  
-  (define construct-id-call-count
-    (let ([count 0])
-      (case-lambda
-        [() count]
-        [(n) (set! count n)])))
-
-  (define construct-id-constructed-identifiers
-    (let ([ht (make-eq-hashtable)])
-      (case-lambda
-        [() (map (lambda (key) (cons key (hashtable-ref ht key #f)))
-                 (vector->list (hashtable-keys ht)))]
-        [(id) (hashtable-set! ht id (+ (hashtable-ref ht id 0) 1)) id])))
-
-  (define-record-type accumulating-timer
-    (fields name (mutable count) (mutable statistics))
-    (nongenerative)
-    (protocol
-      (lambda (new)
-        (lambda (name)
-          (new name 0 #f)))))
-
-  (define print-accumulating-timer
-    (lambda (at)
-      (let ([s (accumulating-timer-statistics at)])
-        (printf "~a called ~d times\n\t~d collection(s)\n\t~d ms elapsed, including ~d ms collecting\n\t~d ms elapsed real time, including ~s ms collecting\n\t~d bytes allocated, including ~d bytes reclaimed\n"
-                (accumulating-timer-name at) (accumulating-timer-count at)
-                (sstats-gc-count s) (sstats-cpu s) (sstats-gc-cpu s)
-                (sstats-real s) (sstats-gc-real s) (sstats-bytes s)
-                (sstats-gc-bytes s)))))
-
-  (define sstats-add
-    (lambda (s1 s2)
-      (make-sstats
-        (+ (sstats-cpu s1) (sstats-cpu s2))
-        (+ (sstats-real s1) (sstats-real s2))
-        (+ (sstats-bytes s1) (sstats-bytes s2))
-        (+ (sstats-gc-count s1) (sstats-gc-count s2))
-        (+ (sstats-gc-cpu s1) (sstats-gc-cpu s2))
-        (+ (sstats-gc-real s1) (sstats-gc-real s2))
-        (+ (sstats-gc-bytes s1) (sstats-gc-bytes s2)))))
-
-  (define-syntax define-accumulating-timer
-    (syntax-rules ()
-      [(_ name) (define name (make-accumulating-timer 'name))]))
-
-  (define-syntax accumulating-time
-    (syntax-rules ()
-      [(_ timer body body* ...)
-       (let ([s1 (statistics)])
-         (printf "running...\n")
-         (let ([v (begin body body* ...)])
-           (let ([s2 (statistics)])
-             (let ([s (accumulating-timer-statistics timer)]
-                   [sd (sstats-difference s1 s2)])
-               (sstats-print sd)
-               (sstats-print s1)
-               (sstats-print s2)
-               (display-statistics)
-               (accumulating-timer-count-set! timer (+ (accumulating-timer-count timer) 1))
-               (accumulating-timer-statistics-set! timer
-                 (if s (sstats-add s sd) sd))))
-           v))]))
-
-  (define-accumulating-timer construct-id-timer)
-
-  ;; This concatenates two identifiers with a string inbetween like "-"
-  (define construct-id
-    (lambda (tid x . x*)
+  (define build-id
+    (lambda (who x x*)
       (define ->str
         (lambda (x)
           (cond
             [(string? x) x]
             [(identifier? x) (symbol->string (syntax->datum x))]
             [(symbol? x) (symbol->string x)]
-            [else (error 'construct-id "invalid input ~s" x)])))
-        (unless (identifier? tid)
-          (error 'construct-id "template argument ~s is not an identifier" tid))
-        #;(construct-id-call-count (+ (construct-id-call-count) 1))
-        (datum->syntax 
-          tid 
-          (string->symbol (apply string-append (->str x) (map ->str x*)))
-          #;(construct-id-constructed-identifiers
-            (string->symbol (apply string-append (->str x) (map ->str x*)))))))
+            [else (error who "invalid input ~s" x)])))
+      (apply string-append (->str x) (map ->str x*))))
 
-  (define ensure-no-suffix
-    (lambda (id)
-      (let ([s (symbol->string (syntax->datum id))])
-        (let ([n (string-length s)])
-          (when (and (> n 0) (char-numeric? (string-ref s (- n 1))))
-            (syntax-violation 'ensure-no-suffix 
-                              "invalid numeric suffix in metavariable" id)))))) 
-  
-  (define generate-acc
-    (lambda (n x)
-      (letrec ([helper
-                 (lambda (n)
-                   (if (= n 2)
-                       (list #'cdr x)
-                       (list #'cdr (helper (- n 1)))))])
-        (cond
-          [(= n 0) x]
-          [(= n 1) (list #'car x)]
-          [else (list #'car (helper n))])))) 
-  
-  (define find-decls
-    (lambda (decl decls)
-      (cond
-        [(null? decls) #f]
-        [(eq? decl (caar decls)) (car decls)]
-        [else (find-decls decl (cdr decls))]))) 
-  
+  (define $construct-id
+    (lambda (who str->sym tid x x*)
+      (unless (identifier? tid)
+        (error who "template argument ~s is not an identifier" tid))
+      (datum->syntax tid (str->sym (build-id who x x*)))))
+
+  (define-who construct-id
+    (lambda (tid x . x*)
+      ($construct-id who string->symbol tid x x*)))
+
+  (define-who construct-unique-id
+    (lambda (tid x . x*)
+      ($construct-id who gensym tid x x*)))
+
   (define-syntax partition-syn
     (lambda (x)
       (syntax-case x ()
@@ -377,51 +384,44 @@
                                                   "no home for ~s"
                                                   (car ls))]))))])
                e0 e1 ...))])))
-  
+
   (define gentemp
     (lambda ()
       (car (generate-temporaries '(#'t))))) 
-  
+
   (define bound-id-member? 
     (lambda (id id*)
       (and (not (null? id*))
            (or (bound-identifier=? id (car id*))
                (bound-id-member? id (cdr id*)))))) 
-  
+
   (define bound-id-union ; seems to be unneeded
     (lambda (ls1 ls2)
       (cond
         [(null? ls1) ls2]
         [(bound-id-member? (car ls1) ls2) (bound-id-union (cdr ls1) ls2)]
         [else (cons (car ls1) (bound-id-union (cdr ls1) ls2))]))) 
-  
-  (define my-enumerate
-    (lambda (n ctr)
-      (if (= n ctr) '() (cons ctr (my-enumerate n (+ ctr 1)))))) 
-  
-  ;;; Higher order stuff
-  (define compose
-    (case-lambda
-      [() (lambda (x) x)]
-      [(f) f]
-      [(f . g*) (lambda (x) (f ((apply compose g*) x)))])) 
-  
-  (define disjoin
-    (case-lambda
-      [() (lambda (x) #f)]
-      [(p?) p?]
-      [(p? . q?*) (lambda (x) (or (p? x) ((apply disjoin q?*) x)))])) 
-  
-  (define-syntax warning
-    (syntax-rules ()
-      [(_ who fmt obj ...)
-       (raise-continuable
-         (condition
-           (make-warning)
-           (make-who-condition who)
-           (make-message-condition (format fmt obj ...))))]))
-  
-  (define echo-syntax
-    (lambda (x)
-      (pretty-print (syntax->datum x))
-      x)))
+
+  (define syntax->source-info
+    (lambda (stx)
+      (let ([si (syntax->source-information stx)])
+        (and si
+             (cond
+               [(and (source-information-position-line si)
+                     (source-information-position-column si))
+                (format "~s line ~s, char ~s of ~a"
+                        (source-information-type si)
+                        (source-information-position-line si)
+                        (source-information-position-column si)
+                        (source-information-source-file si))]
+               [(source-information-byte-offset-start si)
+                (format "~s byte position ~s of ~a"
+                        (source-information-type si)
+                        (source-information-byte-offset-start si)
+                        (source-information-source-file si))]
+               [(source-information-char-offset-start si)
+                (format "~s character position ~s of ~a"
+                        (source-information-type si)
+                        (source-information-char-offset-start si)
+                        (source-information-source-file si))]
+               [else (format "in ~a" (source-information-source-file si))]))))))

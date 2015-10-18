@@ -1,7 +1,6 @@
-;;; Copyright (c) 2000-2013 Dipanwita Sarkar, Andrew W. Keep, R. Kent Dybvig, Oscar Waddell
-;;; See the accompanying file Copyright for detatils
+;;; Copyright (c) 2000-2015 Dipanwita Sarkar, Andrew W. Keep, R. Kent Dybvig, Oscar Waddell
+;;; See the accompanying file Copyright for details
 
-#!chezscheme
 (library (tests compiler)
   (export
     ;; languages
@@ -592,6 +591,7 @@
                 ,(Expr body2 direct)))))]))
 
   (define-language L10 (extends L9)
+    (entry LetrecExpr)
     (LetrecExpr (lrexpr) (+ (letrec ((x lexpr) ...) e)))
     (Expr (e body)
       (- (letrec ((x lexpr) ...) c-letrec))

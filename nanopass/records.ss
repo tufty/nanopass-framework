@@ -1,7 +1,6 @@
-;;; Copyright (c) 2000-2013 Dipanwita Sarkar, Andrew W. Keep, R. Kent Dybvig, Oscar Waddell
-;;; See the accompanying file Copyright for detatils
+;;; Copyright (c) 2000-2015 Dipanwita Sarkar, Andrew W. Keep, R. Kent Dybvig, Oscar Waddell
+;;; See the accompanying file Copyright for details
 
-#!chezscheme
 (library (nanopass records)
   (export find-spec nonterminal-meta? nano-alt->ntspec 
           nonterm-id->ntspec? nonterm-id->ntspec id->spec term-id->tspec?
@@ -21,24 +20,21 @@
           nano-cata-maybe?
 
           make-language language? language-name language-entry-ntspec
-          language-tspecs language-ntspecs language-record
+          language-tspecs language-ntspecs 
           language-tag-mask language-nongenerative-id
 
-          make-tspec tspec-meta-vars tspec-type tspec-pred tspec-meta-pred
+          make-tspec tspec-meta-vars tspec-type tspec-pred
           tspec-handler tspec? tspec-tag tspec-parent?
 
           ntspec? make-ntspec ntspec-name ntspec-meta-vars
-          ntspec-alts ntspec-record ntspec-pred ntspec-all-pred
-          ntspec-parse-name ntspec-unparse-name
-          ntspec-meta-parse-name ntspec-meta-pred
+          ntspec-alts ntspec-pred ntspec-all-pred
           ntspec-tag ntspec-all-tag ntspec-all-term-pred
-          ntspec-nongenerative-id
 
-          alt? alt-syn alt-pretty 
-          make-pair-alt pair-alt? pair-alt-record pair-alt-pattern
+          alt? alt-syn alt-pretty alt-pretty-procedure?
+          make-pair-alt pair-alt? pair-alt-pattern
           pair-alt-field-names pair-alt-field-levels pair-alt-field-maybes
           pair-alt-accessors pair-alt-implicit? pair-alt-pred pair-alt-maker
-          pair-alt-checking-maker pair-alt-tag pair-alt-nongenerative-id
+          pair-alt-tag
           make-terminal-alt terminal-alt? terminal-alt-tspec
           make-nonterminal-alt nonterminal-alt? nonterminal-alt-ntspec
 
@@ -46,49 +42,26 @@
           spec-all-pred
           spec-type
 
+          subspec?
+
           annotate-language!
           language->lang-records
           language->lang-predicates
 
           define-nanopass-record
 
-          define-nanopass-record-types
+          #;define-nanopass-record-types
 
           exists-alt?)
-  (import (rnrs)
-          (nanopass helpers)
-          (nanopass syntaxconvert)
-          (only (chezscheme) optimize-level errorf indirect-export with-implicit fxsrl record-writer))
-
-  (define fxbit-width
-    (let ([table (let ([v (make-vector 256)])
-                   (let loop ([bits 0] [counter 0])
-                     (cond
-                       [(fx>? counter 255) v]
-                       [(fx>? counter (expt 2 bits)) (loop (fx+ bits 1) counter)]
-                       [else (vector-set! v counter bits) (loop bits (fx+ counter 1))])))])
-      (lambda (x)
-        (let loop ([x x] [bit-width 0])
-          (if (fx<? x 256)
-              (fx+ bit-width (vector-ref table x))
-              (loop (fxsrl x 8) (fx+ bit-width 8)))))))
-
-  ; the base language
-  (define-syntax define-nanopass-record
-    (lambda (x)
-      (syntax-case x ()
-        [(k) (with-implicit (k nanopass-record nanopass-record? nanopass-record-tag)
-               #'(define-record-type (nanopass-record make-nanopass-record nanopass-record?)
-                   (nongenerative #{nanopass-record d47f8omgluol6otrw1yvu5-0})
-                   (fields (immutable tag nanopass-record-tag))))])))
+  (import (rnrs) (nanopass helpers) (nanopass syntaxconvert))
 
   (define-nanopass-record)
 
-  (define-syntax *nanopass-record-tag* (lambda (x) (syntax-violation #f "invalid syntax" x)))
-  (define-syntax *nanopass-record-is-parent* (lambda (x) (syntax-violation #f "invalid syntax" x)))
-  (define-syntax *nanopass-record-bits* (lambda (x) (syntax-violation #f "invalid syntax" x)))
+  #;(define-syntax *nanopass-record-tag* (lambda (x) (syntax-violation #f "invalid syntax" x)))
+  #;(define-syntax *nanopass-record-is-parent* (lambda (x) (syntax-violation #f "invalid syntax" x)))
+  #;(define-syntax *nanopass-record-bits* (lambda (x) (syntax-violation #f "invalid syntax" x)))
 
-  (define-syntax define-nanopass-record-types
+  #;(define-syntax define-nanopass-record-types
     (lambda (x)
       (define-record-type np-rec
         (fields name maker pred parent sealed? fields protocol (mutable tag) (mutable bp) (mutable c*))
@@ -167,7 +140,7 @@
                                 (cons e (f (car np-rec*) (cdr np-rec*))))))))))])))
 
   (define-record-type language
-    (fields name entry-ntspec tspecs ntspecs (mutable record) (mutable tag-mask) nongenerative-id (mutable maker) (mutable pred))
+    (fields name entry-ntspec tspecs ntspecs (mutable rtd) (mutable rcd) (mutable tag-mask) nongenerative-id)
     (nongenerative)
     (protocol
       (let ()
@@ -195,64 +168,43 @@
         (lambda (new)
           (lambda (name entry-ntspec tspecs ntspecs nongen-id)
             (check-meta! name tspecs ntspecs)
-            (new name entry-ntspec tspecs ntspecs #f #f nongen-id #f #f))))))
+            (new name entry-ntspec tspecs ntspecs #f #f #f nongen-id))))))
 
   (define-record-type tspec 
-    (fields meta-vars type handler (mutable pred) (mutable meta-pred) (mutable tag) (mutable parent?))
+    (fields meta-vars type handler (mutable pred) (mutable tag) (mutable parent?))
     (nongenerative)
     (protocol
       (lambda (new)
         (case-lambda
-          [(type meta-vars) (new meta-vars type #f #f #f #f #f)]
-          [(type meta-vars handler) (new meta-vars type handler #f #f #f #f)]))))
+          [(type meta-vars) (new meta-vars type #f #f #f #f)]
+          [(type meta-vars handler) (new meta-vars type handler #f #f #f)]))))
 
   (define-record-type ntspec
-    (fields name meta-vars alts (mutable record) (mutable parent-record)
-      (mutable unparse-name) (mutable parse-name) 
-      (mutable meta-parse-name)
+    (fields name meta-vars alts
+      (mutable rtd)
+      (mutable rcd)
       (mutable tag)
       (mutable pred)         ; this record?
       (mutable all-pred)     ; this record or valid sub-grammar element
                              ; e.g., if Rhs -> Triv, Triv -> Lvalue, and Lvalue -> var,
                              ; then all-pred returns true for any Rhs, Triv, Lvalue, or var
       (mutable all-term-pred) ; this record's term sub-grammar elements
-      (mutable all-tag)      ; tag for this record logor all sub grammar elements
+      (mutable all-tag))      ; tag for this record logor all sub grammar elements
                              ; following all-pred order
-      (mutable meta-pred)    ; name of a predicate used in the meta-parser
-      (mutable nongenerative-id))
     (nongenerative)
     (protocol
       (lambda (new)
         (lambda (name meta-vars alts)
-          (new name meta-vars alts #f #f #f #f #f #f #f #f #f #f #f #f)))))
-
-  (module ()
-    (record-writer (record-type-descriptor ntspec)
-      (lambda (r p wr)
-        (display "#<ntspec " p)
-        (wr (syntax->datum (ntspec-name r)) p)
-        (display " " p)
-        (wr (syntax->datum (ntspec-meta-vars r)) p)
-        (display " " p)
-        (wr (ntspec-alts r) p)
-        (display ">" p))))
+          (new name meta-vars alts #f #f #f #f #f #f #f)))))
 
   (define-record-type alt
-    (fields syn pretty)
+    (fields syn pretty pretty-procedure?)
     (nongenerative))
-
-  (module ()
-    (record-writer (record-type-descriptor alt)
-      (lambda (r p wr)
-        (display "#<alt " p)
-        (wr (syntax->datum (alt-syn r)) p)
-        (display ">" p))))
 
   (define-record-type pair-alt
     (parent alt)
     (fields
-      (mutable record)
-      (mutable parent-record)
+      (mutable rtd)
       (mutable pattern)
       (mutable field-names)
       (mutable field-levels)
@@ -261,15 +213,14 @@
       (mutable tag)
       (mutable pred)
       (mutable maker)
-      (mutable checking-maker)
-      (mutable accessors)
-      (mutable nongenerative-id))
+      (mutable accessors))
     (nongenerative)
     (sealed #t)
     (protocol
       (lambda (pargs->new)
-        (lambda (syn pretty)
-          ((pargs->new syn pretty) #f #f #f #f #f #f #f #f #f #f #f #f #f)))))
+        (lambda (syn pretty pretty-procedure?)
+          ((pargs->new syn pretty pretty-procedure?)
+            #f #f #f #f #f #f #f #f #f #f)))))
 
   (define-record-type terminal-alt
     (parent alt)
@@ -278,8 +229,8 @@
     (sealed #t)
     (protocol
       (lambda (pargs->new)
-        (lambda (syn pretty)
-          ((pargs->new syn pretty) #f)))))
+        (lambda (syn pretty pretty-procedure?)
+          ((pargs->new syn pretty pretty-procedure?) #f)))))
 
   (define-record-type nonterminal-alt
     (parent alt)
@@ -288,8 +239,8 @@
     (sealed #t)
     (protocol
       (lambda (pargs->new)
-        (lambda (syn pretty)
-          ((pargs->new syn pretty) #f)))))
+        (lambda (syn pretty pretty-procedure?)
+          ((pargs->new syn pretty pretty-procedure?) #f)))))
 
   (define-who spec-all-pred
     (lambda (x)
@@ -406,6 +357,33 @@
                 (memq m (syntax->datum (ntspec-meta-vars ntspec)))) 
           ntspecs))))
 
+  (define subspec?
+    (lambda (maybe-subspec spec)
+      (let loop ([spec* (list spec)] [seen* '()])
+        (and (not (null? spec*))
+             (let ([spec (car spec*)])
+               (or (eq? maybe-subspec spec)
+                   (loop
+                     (if (tspec? spec)
+                         (cdr spec*)
+                         (fold-left
+                           (lambda (spec* alt)
+                             (cond
+                               [(terminal-alt? alt)
+                                (let ([spec (terminal-alt-tspec alt)])
+                                  (if (memq spec seen*)
+                                      spec*
+                                      (cons spec spec*)))]
+                               [(nonterminal-alt? alt)
+                                (let ([spec (nonterminal-alt-ntspec alt)])
+                                  (if (memq spec seen*)
+                                      spec*
+                                      (cons spec spec*)))]
+                               [else spec*]))
+                           (cdr spec*)
+                           (ntspec-alts spec)))
+                     (cons spec seen*))))))))
+
   (define type->pred-prefixes
     (lambda (id mrec) 
       (define find-related-ntspecs
@@ -462,10 +440,10 @@
   (define annotate-language!
     (lambda (r lang id)
       (let ([lang-name (language-name lang)] [nongen-id (language-nongenerative-id lang)])
-        (let ([lang-rec-id (construct-id id lang-name "-record")]
+        (let ([lang-rec-id (construct-unique-id id lang-name "-record")]
               [tspec* (language-tspecs lang)]
               [ntspec* (language-ntspecs lang)]
-              [np-bits (r #'nanopass-record #'*nanopass-record-bits*)]
+              [np-bits #f #;(r #'nanopass-record #'*nanopass-record-bits*)]
               [nongen-sym (and nongen-id (syntax->datum nongen-id))])
           ;; Needs to return #t because it ends up encoded in a field this way
           (define meta?
@@ -477,18 +455,17 @@
             (lambda (tspec-tag-all tspec)
               (let ([t (tspec-type tspec)])
                 (tspec-pred-set! tspec (construct-id t t "?"))
-                (tspec-meta-pred-set! tspec (construct-id id "meta-" t "?"))
-                (let ([tag (guard (c [else #f]) (r t #'*nanopass-record-tag*))])
+                (let ([tag #f #;(guard (c [else #f]) (r t #'*nanopass-record-tag*))])
                   (if tag
                       (begin
                         (tspec-tag-set! tspec tag)
-                        (tspec-parent?-set! tspec (r t #'*nanopass-record-is-parent*))
+                        (tspec-parent?-set! tspec #f #;(r t #'*nanopass-record-is-parent*))
                         (fxior tag tspec-tag-all))
                       tspec-tag-all)))))
           (define annotate-alt*!
             (lambda (bits)
               (lambda (alt-all-tag ntspec)
-                (let ([tag (ntspec-tag ntspec)] [nt-rec-id (ntspec-record ntspec)] [ntname (ntspec-name ntspec)])
+                (let ([tag (ntspec-tag ntspec)] [nt-rtd (ntspec-rtd ntspec)] [ntname (ntspec-name ntspec)])
                   (let ([ntname-sym (syntax->datum ntname)])
                     (let f ([alt* (ntspec-alts ntspec)] [next 1] [alt-all-tag alt-all-tag])
                       (if (null? alt*)
@@ -496,47 +473,55 @@
                           (let ([a (car alt*)] [alt* (cdr alt*)])
                             (cond
                               [(pair-alt? a)
-                                (let* ([syn (alt-syn a)]
-                                        [name (car syn)]
-                                        [rec-id (unique-id id lang-name ntname name)]
-                                        [m? (meta? name)])
-                                  (let-values ([(p fields levels maybes) (convert-pattern (if m? syn (cdr syn)))])
-                                    (unless (all-unique-identifiers? fields)
-                                      (syntax-violation 'define-language "found one or more duplicate fields in production" syn))
-                                    (let ([tag (fx+ (fxarithmetic-shift-left next bits) tag)])
-                                      (pair-alt-tag-set! a tag)
-                                      (pair-alt-parent-record-set! a nt-rec-id)
-                                      (pair-alt-record-set! a rec-id)
-                                      (pair-alt-pattern-set! a p)
-                                      (pair-alt-field-names-set! a fields)
-                                      (pair-alt-field-levels-set! a levels)
-                                      (pair-alt-field-maybes-set! a maybes)
-                                      (pair-alt-implicit-set! a m?)
-                                      (pair-alt-accessors-set! a (map (lambda (x) (construct-id id rec-id "-" x)) fields))
-                                      (pair-alt-pred-set! a (construct-id id rec-id "?"))
-                                      (pair-alt-maker-set! a (construct-id id "make-" rec-id))
-                                      (pair-alt-checking-maker-set! a (construct-id id "make-checked-" rec-id))
-                                      (when nongen-sym
-                                        (pair-alt-nongenerative-id-set! a
-                                          (datum->syntax id
-                                            (regensym nongen-sym
-                                              (format ":~s:~s" ntname-sym (syntax->datum name))
-                                              (format "-~s" tag)))))
-                                      (f alt* (fx+ next 1) (fxior alt-all-tag tag)))))]
+                               (let* ([syn (alt-syn a)]
+                                      [name (car syn)]
+                                      [rec-name (unique-name lang-name ntname name)]
+                                      [m? (meta? name)])
+                                 (let-values ([(p fields levels maybes) (convert-pattern (if m? syn (cdr syn)))])
+                                   (unless (all-unique-identifiers? fields)
+                                     (syntax-violation 'define-language "found one or more duplicate fields in production" syn))
+                                   (let ([tag (fx+ (fxarithmetic-shift-left next bits) tag)])
+                                     (pair-alt-tag-set! a tag)
+                                     (pair-alt-rtd-set! a
+                                       (make-record-type-descriptor (string->symbol rec-name) nt-rtd
+                                         (if nongen-sym
+                                             (regensym nongen-sym
+                                               (format ":~s:~s" ntname-sym (syntax->datum name))
+                                               (format "-~s" tag))
+                                             (gensym rec-name))
+                                         #t #f
+                                         (let loop ([fields fields] [count 0])
+                                           (if (null? fields)
+                                               (make-vector count)
+                                               (let ([v (loop (cdr fields) (fx+ count 1))])
+                                                 (vector-set! v count `(immutable ,(syntax->datum (car fields))))
+                                                 v)))))
+                                     (pair-alt-pattern-set! a p)
+                                     (pair-alt-field-names-set! a fields)
+                                     (pair-alt-field-levels-set! a levels)
+                                     (pair-alt-field-maybes-set! a maybes)
+                                     (pair-alt-implicit-set! a m?)
+                                     (pair-alt-accessors-set! a
+                                       (map (lambda (field)
+                                              (construct-unique-id id rec-name "-" field))
+                                         fields))
+                                     (pair-alt-pred-set! a (construct-unique-id id rec-name "?"))
+                                     (pair-alt-maker-set! a (construct-unique-id id "make-" rec-name))
+                                     (f alt* (fx+ next 1) (fxior alt-all-tag tag)))))]
                               [(nonterminal-alt? a)
-                                (let ([a-ntspec (nonterminal-meta->ntspec (alt-syn a) ntspec*)])
-                                  (unless a-ntspec
-                                    (syntax-violation 'define-language "no nonterminal for meta-variable"
-                                      lang-name (alt-syn a)))
-                                  (nonterminal-alt-ntspec-set! a a-ntspec)
-                                  (f alt* next alt-all-tag))]
+                               (let ([a-ntspec (nonterminal-meta->ntspec (alt-syn a) ntspec*)])
+                                 (unless a-ntspec
+                                   (syntax-violation 'define-language "no nonterminal for meta-variable"
+                                     lang-name (alt-syn a)))
+                                 (nonterminal-alt-ntspec-set! a a-ntspec)
+                                 (f alt* next alt-all-tag))]
                               [(terminal-alt? a)
-                                (let ([tspec (terminal-meta->tspec (alt-syn a) tspec*)])
-                                  (unless tspec
-                                    (syntax-violation 'define-language "no terminal for meta-variable"
-                                      lang-name (alt-syn a)))
-                                  (terminal-alt-tspec-set! a tspec)
-                                  (f alt* next alt-all-tag))])))))))))
+                               (let ([tspec (terminal-meta->tspec (alt-syn a) tspec*)])
+                                 (unless tspec
+                                   (syntax-violation 'define-language "no terminal for meta-variable"
+                                     lang-name (alt-syn a)))
+                                 (terminal-alt-tspec-set! a tspec)
+                                 (f alt* next alt-all-tag))])))))))))
           (define annotate-ntspec*!
             (lambda (ntspec*)
               (let f ([nt-counter 0] [ntspec* ntspec*])
@@ -544,64 +529,77 @@
                     nt-counter
                     (let ([ntspec (car ntspec*)] [ntspec* (cdr ntspec*)])
                       (let ([nterm (ntspec-name ntspec)])
-                        (let ([nt-rec-id (unique-id id lang-name nterm)])
-                          (ntspec-tag-set! ntspec nt-counter)
-                          (ntspec-record-set! ntspec nt-rec-id)
-                          (ntspec-parent-record-set! ntspec lang-rec-id)
-                          (ntspec-pred-set! ntspec (construct-id id nt-rec-id "?"))
-                          (ntspec-meta-pred-set! ntspec (construct-id id "meta-" nterm "?"))
-                          (ntspec-unparse-name-set! ntspec (construct-id id "unparse-" nterm))
-                          (ntspec-parse-name-set! ntspec (construct-id id "parse-" nterm))
-                          (ntspec-meta-parse-name-set! ntspec (construct-id id "meta-parse-" nterm))
-                          (when nongen-sym
-                            (ntspec-nongenerative-id-set! ntspec
-                              (datum->syntax id
-                                (regensym nongen-sym
-                                  (format ":~s" (syntax->datum nterm))
-                                  (format "-~d" nt-counter)))))
-                          (f (fx+ nt-counter 1) ntspec*))))))))
+                        (let ([nt-rec-name (unique-name lang-name nterm)])
+                          (let ([nt-rtd (make-record-type-descriptor
+                                          (string->symbol nt-rec-name)
+                                          (language-rtd lang)
+                                          (if nongen-sym
+                                              (regensym nongen-sym
+                                                (format ":~s"
+                                                  (syntax->datum nterm))
+                                                (format "-~d" nt-counter))
+                                              (gensym nt-rec-name))
+                                          #f #f (vector))])
+                            (ntspec-tag-set! ntspec nt-counter)
+                            (ntspec-rtd-set! ntspec nt-rtd)
+                            (ntspec-rcd-set! ntspec
+                              (make-record-constructor-descriptor nt-rtd
+                                (language-rcd lang) #f))
+                            (ntspec-pred-set! ntspec (construct-unique-id id nt-rec-name "?"))
+                            (f (fx+ nt-counter 1) ntspec*)))))))))
           (define-who annotate-all-pred!
             (lambda (ntspec)
               (let ([all-pred (ntspec-all-pred ntspec)])
-                (if all-pred
-                    (values all-pred (ntspec-all-term-pred ntspec) (ntspec-all-tag ntspec))
-                    (let f ([alt* (ntspec-alts ntspec)] [pred* '()] [term-pred* '()] [tag '()])
-                      (if (null? alt*)
-                          (let ([all-pred (if (null? pred*)
-                                              (ntspec-pred ntspec)
-                                              #`(lambda (x)
-                                                  (or (#,(ntspec-pred ntspec) x)
-                                                      #,@(map (lambda (pred) #`(#,pred x)) pred*))))]
-                                [all-term-pred (cond
-                                                 [(null? term-pred*) #f]
-                                                 [(null? (cdr term-pred*)) (car term-pred*)]
-                                                 [else #`(lambda (x) (or #,@(map (lambda (pred) #`(#,pred x)) term-pred*)))])]
-                                [tag (cons (ntspec-tag ntspec) tag)])
-                            (ntspec-all-pred-set! ntspec all-pred)
-                            (ntspec-all-term-pred-set! ntspec all-term-pred)
-                            (ntspec-all-tag-set! ntspec tag)
-                            (values all-pred all-term-pred tag))
-                          (let ([alt (car alt*)])
-                            (cond
-                              [(pair-alt? alt) (f (cdr alt*) pred* term-pred* tag)]
-                              [(terminal-alt? alt)
-                               (let* ([tspec (terminal-alt-tspec alt)]
-                                      [new-tag (tspec-tag tspec)]
-                                      [pred (tspec-pred tspec)])
-                                 (f (cdr alt*) (cons pred pred*)
-                                   (if #f #;new-tag term-pred* (cons pred term-pred*))
-                                   (if #f #;new-tag (fxior new-tag tag) tag)))]
-                              [(nonterminal-alt? alt)
-                               (let-values ([(pred term-pred new-tag) (annotate-all-pred! (nonterminal-alt-ntspec alt))])
-                                 (f (cdr alt*) (cons pred pred*)
+                (cond
+                  [(eq? all-pred 'processing) (syntax-violation 'define-language "found mutually recursive nonterminals" (ntspec-name ntspec))]
+                  [all-pred (values all-pred (ntspec-all-term-pred ntspec) (ntspec-all-tag ntspec))]
+                  [else
+                   (ntspec-all-pred-set! ntspec 'processing)
+                   (let f ([alt* (ntspec-alts ntspec)] [pred* '()] [term-pred* '()] [tag '()])
+                     (if (null? alt*)
+                         (let ([all-pred (if (null? pred*)
+                                             (ntspec-pred ntspec)
+                                             #`(lambda (x)
+                                                 (or (#,(ntspec-pred ntspec) x)
+                                                     #,@(map (lambda (pred) #`(#,pred x)) pred*))))]
+                               [all-term-pred (cond
+                                                [(null? term-pred*) #f]
+                                                [(null? (cdr term-pred*)) (car term-pred*)]
+                                                [else #`(lambda (x) (or #,@(map (lambda (pred) #`(#,pred x)) term-pred*)))])]
+                               [tag (cons (ntspec-tag ntspec) tag)])
+                           (ntspec-all-pred-set! ntspec all-pred)
+                           (ntspec-all-term-pred-set! ntspec all-term-pred)
+                           (ntspec-all-tag-set! ntspec tag)
+                           (values all-pred all-term-pred tag))
+                         (let ([alt (car alt*)])
+                           (cond
+                             [(pair-alt? alt) (f (cdr alt*) pred* term-pred* tag)]
+                             [(terminal-alt? alt)
+                              (let* ([tspec (terminal-alt-tspec alt)]
+                                     [new-tag (tspec-tag tspec)]
+                                     [pred (tspec-pred tspec)])
+                                (f (cdr alt*) (cons pred pred*)
+                                  (if #f #;new-tag term-pred* (cons pred term-pred*))
+                                  (if #f #;new-tag (fxior new-tag tag) tag)))]
+                             [(nonterminal-alt? alt)
+                              (let-values ([(pred term-pred new-tag) (annotate-all-pred! (nonterminal-alt-ntspec alt))])
+                                (f (cdr alt*) (cons pred pred*)
                                    (if term-pred (cons term-pred term-pred*) term-pred*)
-                                   (append new-tag tag)))]))))))))
-          (language-record-set! lang lang-rec-id)
-          (language-maker-set! lang (construct-id lang-name "make-" lang-name))
-          (language-pred-set! lang (construct-id lang-name "$" lang-name "?"))
+                                   (append new-tag tag)))]))))]))))
+          (let ([lang-rtd (make-record-type-descriptor (syntax->datum lang-name)
+                            (record-type-descriptor nanopass-record)
+                            (let ([nongen-id (language-nongenerative-id lang)])
+                              (if nongen-id
+                                  (syntax->datum nongen-id)
+                                  (gensym (unique-name lang-name))))
+                            #f #f (vector))])
+            (language-rtd-set! lang lang-rtd)
+            (language-rcd-set! lang
+              (make-record-constructor-descriptor lang-rtd
+                (record-constructor-descriptor nanopass-record) #f)))
           (let ([tspec-tag-bits (fold-left annotate-tspec! 0 tspec*)])
             (let ([nt-counter (annotate-ntspec*! ntspec*)])
-              (let ([bits (fxbit-width nt-counter)])
+              (let ([bits (fxlength nt-counter)])
                 (unless (fxzero? (fxand tspec-tag-bits (fx- (fxarithmetic-shift-left 1 bits) 1)))
                   (syntax-violation 'define-language "nanopass-record tags interfere with language production tags"
                     lang-name))
@@ -618,19 +616,21 @@
   (define language->lang-records
     (lambda (lang)
       (let ([ntspecs (language-ntspecs lang)] [tspecs (language-tspecs lang)])
-        (define alt->checking-cons
-          (lambda (alt)
+        (define alt->lang-record
+          (lambda (ntspec alt)
             ; TODO: handle fld and msgs that are lists.
             (define build-field-check
               (lambda (fld msg level maybe?)
                 (with-values 
                   (cond
                     [(nonterminal-meta->ntspec fld ntspecs) =>
-                      (lambda (ntspec) (values (ntspec-all-pred ntspec) (ntspec-name ntspec)))]
+                     (lambda (ntspec) (values (ntspec-all-pred ntspec) (ntspec-name ntspec)))]
                     [(terminal-meta->tspec fld tspecs) =>
-                      (lambda (tspec) (values (tspec-pred tspec) (tspec-type tspec)))]
-                    [else (syntax-error fld "unrecognized meta-variable in language ~s"
-                            (syntax->datum (language-name lang)))])
+                     (lambda (tspec) (values (tspec-pred tspec) (tspec-type tspec)))]
+                    [else (syntax-violation 'define-language
+                            (format "unrecognized meta-variable in language ~s"
+                              (syntax->datum (language-name lang)))
+                            fld)])
                   (lambda (pred? name)
                     (with-syntax ([pred? (if maybe?
                                              #`(lambda (x) (or (eq? x #f) (#,pred? x)))
@@ -639,66 +639,60 @@
                              (if (fx=? level 0)
                                  #`(lambda (x)
                                      (unless (pred? x)
-                                       (errorf who
-                                         "expected ~s but recieved ~s in field ~s of ~s~:[~; from ~:*~a~]"
-                                         '#,name x '#,fld '#,(alt-syn alt) #,msg)))
+                                       (let ([msg #,msg])
+                                         (if msg
+                                             (errorf who
+                                               "expected ~s but received ~s in field ~s of ~s from ~a"
+                                               '#,name x '#,fld '#,(alt-syn alt) msg)
+                                             (errorf who
+                                               "expected ~s but received ~s in field ~s of ~s"
+                                               '#,name x '#,fld '#,(alt-syn alt))))))
                                  #`(lambda (x)
                                      (for-each #,(f (fx- level 1)) x))))
                           #,fld))))))
-            (with-syntax ([(fld ...) (pair-alt-field-names alt)]
-                          [checking-maker (pair-alt-checking-maker alt)]
-                          [maker (pair-alt-maker alt)])
-              (with-syntax ([(id ...) (generate-temporaries #'(fld ...))])
-                (if (fx=? (optimize-level) 3)
-                    #'(define-syntax checking-maker
-                        (syntax-rules ()
-                          [(_ who fld ... id ...) (maker fld ...)]))
-                    (with-syntax ([(msg ...) (generate-temporaries #'(fld ...))])
-                      (with-syntax ([(checks ...) (map build-field-check #'(fld ...) #'(msg ...)
-                                                    (pair-alt-field-levels alt)
-                                                    (pair-alt-field-maybes alt))])
-                        #'(define checking-maker
-                            (lambda (who fld ... msg ...)
-                              checks ...
-                              (maker fld ...))))))))))
-        (define alt->lang-record
-          (lambda (alt)
-            #`(define-record-type #,(pair-alt-record alt)
-                (parent #,(pair-alt-parent-record alt))
-                (fields #,@(pair-alt-field-names alt))
-                (sealed #t)
-                #,(let ([nongen-id (pair-alt-nongenerative-id alt)])
-                    (if nongen-id
-                        #`(nongenerative #,nongen-id)
-                        #'(nongenerative)))
-                (protocol
-                  (lambda (pargs->new)
-                    (lambda #,(pair-alt-field-names alt)
-                      ((pargs->new #,(pair-alt-tag alt)) #,@(pair-alt-field-names alt))))))))
+            (with-syntax ([(fld ...) (pair-alt-field-names alt)])
+              (with-syntax ([(msg ...) (generate-temporaries #'(fld ...))]
+                            [(idx ...) (iota (length #'(fld ...)))]
+                            [(accessor ...) (pair-alt-accessors alt)]
+                            [(rtd ...) (make-list (length #'(fld ...)) (pair-alt-rtd alt))])
+                #`(begin
+                    (define #,(pair-alt-pred alt) (record-predicate '#,(pair-alt-rtd alt)))
+                    (define #,(pair-alt-maker alt)
+                      (let ()
+                        (define rcd
+                          (make-record-constructor-descriptor '#,(pair-alt-rtd alt)
+                            '#,(ntspec-rcd ntspec)
+                            (lambda (pargs->new)
+                              (lambda (fld ...)
+                                ((pargs->new #,(pair-alt-tag alt)) fld ...)))))
+                        (define maker (record-constructor rcd))
+                        (lambda (who fld ... msg ...)
+                          #,@(if (fx=? (optimize-level) 3)
+                                '()
+                                (map build-field-check #'(fld ...) #'(msg ...)
+                                  (pair-alt-field-levels alt)
+                                  (pair-alt-field-maybes alt)))
+                          (maker fld ...))))
+                    (define accessor (record-accessor 'rtd idx)) ...)))))
         (define ntspec->lang-record
           (lambda (ntspec)
-            #`(define-record-type #,(ntspec-record ntspec)
-                (parent #,(ntspec-parent-record ntspec))
-                #,(let ([nongen-id (ntspec-nongenerative-id ntspec)])
-                    (if nongen-id
-                        #`(nongenerative #,nongen-id)
-                        #'(nongenerative))))))
+            #`(define #,(ntspec-pred ntspec) (record-predicate '#,(ntspec-rtd ntspec)))))
         (define ntspecs->lang-records
           (lambda (ntspec*)
-            (let f ([ntspec* ntspec*] [ntrec* '()] [altrec* '()] [checking-cons* '()])
+            (let f ([ntspec* ntspec*] [ntrec* '()] [altrec* '()])
               (if (null? ntspec*)
-                  #`(#,ntrec* #,altrec* #,checking-cons*)
+                  #`(#,ntrec* #,altrec*)
                   (let ([ntspec (car ntspec*)])
-                    (let g ([alt* (ntspec-alts ntspec)] [altrec* altrec*] [checking-cons* checking-cons*])
+                    (let g ([alt* (ntspec-alts ntspec)] [altrec* altrec*])
                       (if (null? alt*)
-                          (f (cdr ntspec*) (cons (ntspec->lang-record ntspec) ntrec*)
-                             altrec* checking-cons*)
+                          (f (cdr ntspec*)
+                             (cons (ntspec->lang-record ntspec) ntrec*)
+                             altrec*)
                           (let ([alt (car alt*)])
                             (if (pair-alt? alt)
                                 (g (cdr alt*)
-                                   (cons (alt->lang-record alt) altrec*)
-                                   (cons (alt->checking-cons alt) checking-cons*))
-                                (g (cdr alt*) altrec* checking-cons*))))))))))
+                                   (cons (alt->lang-record ntspec alt) altrec*))
+                                (g (cdr alt*) altrec*))))))))))
         (define ntspecs->indirect-id*
           (lambda (ntspec*)
             (let f ([ntspec* ntspec*] [id* '()])
@@ -713,26 +707,13 @@
                                (if (pair-alt? alt)
                                    (cons* (pair-alt-pred alt)
                                      (pair-alt-maker alt)
-                                     (pair-alt-checking-maker alt)
                                      (append (pair-alt-accessors alt) id*))
                                    id*))))))))))
-        (with-syntax ([lang-rec-id (language-record lang)]
-                      [maker (language-maker lang)]
-                      [pred? (language-pred lang)]
-                      [((ntrec ...) (altrec ...) (checking-cons ...))
+        (with-syntax ([((ntrec ...) (altrec ...))
                        (ntspecs->lang-records (language-ntspecs lang))]
                       [lang-id (language-name lang)]
                       [(indirect-id* ...) (ntspecs->indirect-id* (language-ntspecs lang))])
-          #`((define-record-type (lang-rec-id maker pred?)
-               (parent nanopass-record)
-               #,(let ([nongen-id (language-nongenerative-id lang)])
-                   (if nongen-id
-                       #`(nongenerative #,nongen-id)
-                       #'(nongenerative))))
-             ntrec ...
-             altrec ...
-             checking-cons ...
-             (indirect-export lang-id indirect-id* ...))))))
+          #`(ntrec ...  altrec ...  (indirect-export lang-id indirect-id* ...))))))
 
   (define language->lang-predicates
     (lambda (desc)
@@ -740,12 +721,11 @@
         (let loop ([ntspecs (language-ntspecs desc)] [nt?* '()] [term?* '()])
           (if (null? ntspecs)
               (with-syntax ([lang? (construct-id name name "?")]
-                            [lang-pred? (language-pred desc)]
                             [(nt? ...) nt?*]
                             [(term? ...) term?*])
-                #'((define lang?
+                #`((define lang?
                      (lambda (x)
-                       (or (lang-pred? x) (term? x) ...)))
+                       (or ((record-predicate '#,(language-rtd desc)) x) (term? x) ...)))
                    nt? ...))
               (let ([ntspec (car ntspecs)])
                 (loop (cdr ntspecs)

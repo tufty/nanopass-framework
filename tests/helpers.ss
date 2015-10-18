@@ -1,5 +1,5 @@
-;;; Copyright (c) 2000-2013 Dipanwita Sarkar, Andrew W. Keep, R. Kent Dybvig, Oscar Waddell
-;;; See the accompanying file Copyright for detatils
+;;; Copyright (c) 2000-2015 Dipanwita Sarkar, Andrew W. Keep, R. Kent Dybvig, Oscar Waddell
+;;; See the accompanying file Copyright for details
 
 (library (tests helpers)
   (export compose disjoin any every choose reverse-filter fold reduce
@@ -253,11 +253,6 @@
     (lambda (ls)
       (or (null? ls)
           (and (not (memq (car ls) (cdr ls))) (set? (cdr ls)))))) 
-  
-  (define iota
-    (case-lambda
-      [(n) (iota 0 n)]
-      [(i n) (if (= n 0) '() (cons i (iota (+ i 1) (- n 1))))])) 
   
   ;;; ====================
   ;;; Extra syntax and helpers for multiple values 
